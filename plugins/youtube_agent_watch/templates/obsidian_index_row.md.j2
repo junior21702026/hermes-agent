@@ -1,0 +1,1 @@
+| {{ (e.upload_date or e.extracted_at[:10]) }} | {{ e.creator_name or e.creator_id }} | {{ e.title }} | {{ e.score }} | {{ e.topics | join(', ') }} | [[{{ note }}]] | <!-- {{ e.video_id }} -->

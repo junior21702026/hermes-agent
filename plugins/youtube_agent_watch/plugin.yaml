@@ -1,0 +1,17 @@
+name: youtube-agent-watch
+version: 0.1.0
+description: Dry-run capable YouTube intelligence watcher for AI-agent operational learnings.
+entrypoint: plugins.youtube_agent_watch.watcher
+commands:
+  - python -m plugins.youtube_agent_watch.watcher healthcheck --strict
+  - python -m plugins.youtube_agent_watch.watcher run --dry-run --max-videos 0
+  - python -m plugins.youtube_agent_watch.watcher run --schedule morning --max-videos 10
+  - python -m plugins.youtube_agent_watch.watcher run --schedule evening --max-videos 10
+dependencies:
+  - yt-dlp>=2024.10.0
+  - youtube-transcript-api>=0.6.2
+  - jinja2>=3.1
+  - croniter>=2.0
+notes:
+  import_path: plugins.youtube_agent_watch
+  runtime_home: /Users/junior/junior-agent/.hermes/youtube-agent-watch

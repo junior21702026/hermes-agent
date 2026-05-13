@@ -1,0 +1,5 @@
+**{{ e.creator_name or e.creator_id }}: {{ e.title }}**
+Score {{ e.score }} — {{ e.url }}
+{% for reason in e.score_reasons[:2] -%}
+- {{ reason }}
+{% endfor -%}

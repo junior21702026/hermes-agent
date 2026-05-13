@@ -1,0 +1,50 @@
+---
+creator: {{ e.creator_name or e.creator_id }}
+video_id: {{ e.video_id }}
+url: {{ e.url }}
+score: {{ e.score }}
+topics: {{ e.topics }}
+extracted_at: {{ e.extracted_at }}
+---
+
+# {{ e.title }}
+
+## TL;DR
+{% for item in e.tldr %}- {{ item }}
+{% else %}- No concrete TL;DR extracted.
+{% endfor %}
+
+## Workflows
+{% for w in e.workflows %}{{ loop.index }}. **{{ w.title }}** (copy difficulty: {{ w.copy_difficulty }})
+   - Stack: {{ w.stack | join(', ') }}
+{% for step in w.steps %}   - {{ step }}
+{% endfor %}
+{% else %}- None extracted.
+{% endfor %}
+
+## Automations
+{% for a in e.automations_for_small_business %}- **{{ a.use_case }}** — trigger: {{ a.trigger }}; tools: {{ a.tools | join(', ') }}; value: {{ a.estimated_value }}
+{% else %}- None extracted.
+{% endfor %}
+
+## Tools / Stacks
+{% for t in e.tools_models_stacks %}- {{ t.name }} — {{ t.role }}
+{% else %}- None extracted.
+{% endfor %}
+
+## Prompts / Patterns
+{% for p in e.prompts_and_patterns %}- **{{ p.name }}** — {{ p.snippet }}
+{% else %}- None extracted.
+{% endfor %}
+
+## Hermes / OpenClaw / Codex Ideas
+{% for idea in e.hermes_openclaw_codex_ideas %}- **{{ idea.kind }}: {{ idea.name }}** — {{ idea.rationale }}
+{% else %}- None extracted.
+{% endfor %}
+
+## Verification
+- Confidence: {{ e.verification.confidence }}
+- Notes: {{ e.verification.notes }}
+
+## Raw Link
+{{ e.url }}

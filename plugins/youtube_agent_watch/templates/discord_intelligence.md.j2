@@ -1,0 +1,9 @@
+**{{ e.title }}**
+Creator: {{ e.creator_name or e.creator_id }}
+Score: {{ e.score }}
+Topics: {{ e.topics | join(', ') }}
+{{ e.url }}
+
+{% for item in e.tldr[:2] -%}
+- {{ item }}
+{% endfor -%}

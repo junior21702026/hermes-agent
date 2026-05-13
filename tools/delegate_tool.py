@@ -1951,8 +1951,11 @@ def delegate_task(
             }
         )
 
-    # Load config
-    cfg = _load_config()
+    # Load config (role-aware — if `role` matches a key under delegation_models,
+    # that role's model/provider/base_url/api_key/toolsets overrides the
+    # singular delegation block, while shared defaults like max_iterations
+    # are inherited from the singular block).
+    cfg = _load_config(role=role)
     default_max_iter = cfg.get("max_iterations", DEFAULT_MAX_ITERATIONS)
     # Model-supplied max_iterations is ignored — the config value is authoritative
     # so users get predictable budgets. The kwarg is retained for internal callers
@@ -2422,34 +2425,172 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
     }
 
 
-def _load_config() -> dict:
-    """Load delegation config from CLI_CONFIG or persistent config.
+def _load_config(role: Optional[str] = None) -> dict:
+    """Load delegation config, optionally role-specific.
 
     Checks the runtime config (cli.py CLI_CONFIG) first, then falls back
     to the persistent config (hermes_cli/config.py load_config()) so that
-    ``delegation.model`` / ``delegation.provider`` are picked up regardless
-    of the entry point (CLI, gateway, cron).
+    ``delegation`` / ``delegation_models`` are picked up regardless of
+    entry point (CLI, gateway, cron).
+
+    When ``role`` is given, merges ``delegation_models[role]`` over the
+    singular ``delegation`` block so role-specific fields (``model``,
+    ``provider``, ``base_url``, ``api_key``, ``toolsets``) override while
+    shared defaults (``max_iterations``, ``max_concurrent_children``)
+    inherit. Unknown / unconfigured roles fall back to the singular
+    delegation config silently.
+
+    Patch: re-introduced from spec1 v0.8 ports on 2026-05-12 to enable
+    per-role specialist routing (researcher→Perplexity, architect→Opus,
+    long_context→Gemini, etc.) on junior-agent's v0.13.0 install.
     """
-    try:
-        from cli import CLI_CONFIG
+    def _load_block(key: str) -> dict:
+        try:
+            from cli import CLI_CONFIG
 
-        cfg = CLI_CONFIG.get("delegation") or {}
-        if cfg:
-            return cfg
-    except Exception:
-        pass
-    try:
-        from hermes_cli.config import load_config
+            val = CLI_CONFIG.get(key) or {}
+            if val:
+                return val
+        except Exception:
+            pass
+        try:
+            from hermes_cli.config import load_config
 
-        full = load_config()
-        return full.get("delegation") or {}
-    except Exception:
-        return {}
+            full = load_config()
+            return full.get(key) or {}
+        except Exception:
+            return {}
+
+    base = _load_block("delegation") or {}
+    if not role:
+        return base
+
+    role_models = _load_block("delegation_models") or {}
+    role_cfg = role_models.get(role) or {}
+    if not role_cfg:
+        # Unknown / unconfigured role — silent fall back to base.
+        # `_normalize_role` (separate code path) handles the leaf/orchestrator
+        # warning for depth-control purposes.
+        return base
+
+    # Merge: role overrides base. Lets each role share defaults like
+    # max_iterations while overriding model/provider/toolsets per role.
+    merged = {**base, **role_cfg}
+    return merged
 
 
 # ---------------------------------------------------------------------------
 # OpenAI Function-Calling Schema
 # ---------------------------------------------------------------------------
+
+
+def _build_role_routing_table() -> str:
+    """Build a routing table from delegation_models config.
+
+    Reads `delegation_models` from CLI_CONFIG / persistent config and emits
+    a model-friendly routing decision table. Embedding this in the
+    `delegate_task` tool description (vs SOUL.md) places the routing
+    intelligence at the exact moment the model decides whether to call the
+    tool — far more reliable than a system prompt that competes with chat
+    history.
+
+    Patch: spec1 v0.8 port + auto-routing reinforcement on 2026-05-12.
+    """
+    try:
+        from cli import CLI_CONFIG
+        role_models = CLI_CONFIG.get("delegation_models") or {}
+        if not role_models:
+            from hermes_cli.config import load_config
+            full = load_config()
+            role_models = full.get("delegation_models") or {}
+    except Exception:
+        role_models = {}
+
+    if not role_models:
+        return ""
+
+    # Static intent→role hints. These are the canonical mappings the user
+    # configured; if a role exists in delegation_models but isn't listed
+    # here it still works, just without a routing hint.
+    intent_hints = {
+        "researcher": [
+            "anything CURRENT / recent / today / latest / 'what's new'",
+            "needs CITATIONS or web sources",
+            "general research / lookups / 'find out X'",
+        ],
+        "realtime": [
+            "X (Twitter), social trends, NEWS feeds",
+            "'what's trending', 'what's everyone saying'",
+        ],
+        "architect": [
+            "DESIGN a system / spec a feature (NO code, just plan)",
+            "step 1 of any non-trivial build request",
+        ],
+        "builder": [
+            "WRITE / IMPLEMENT code per an architect spec",
+            "step 2 of build flow",
+        ],
+        "reviewer": [
+            "VALIDATE code against a spec, find bugs",
+            "step 3 of build flow",
+        ],
+        "long_context": [
+            "summarize / analyze LONG docs (>50K tokens)",
+            "any task with massive input",
+        ],
+        "scientist": [
+            "HARD scientific / academic reasoning",
+            "rigorous proofs, peer-review-level depth",
+        ],
+        "calculator": [
+            "MATH, calculation, symbolic, proofs",
+        ],
+        "budget": [
+            "BULK extraction / parsing / formatting",
+            "cheap mechanical work on lots of items",
+        ],
+        "writer": [
+            "DRAFT polished prose, marketing copy, tweets, emails",
+        ],
+        "escalate_opus": [
+            "PLAN: multi-step strategic decisions",
+            "'think hard', 'really plan', 'design my Q3', architecture decisions",
+        ],
+    }
+
+    lines = ["ROUTE BY USER INTENT — for each user request, pick the right specialist:"]
+    for role_name, role_cfg in role_models.items():
+        model = role_cfg.get("model", "?")
+        triggers = intent_hints.get(role_name, [])
+        if not triggers:
+            continue
+        triggers_str = "; ".join(triggers)
+        lines.append(f"  role='{role_name}' (→ {model}): {triggers_str}")
+
+    lines.append("")
+    lines.append("HARD RULES — when to delegate vs answer directly:")
+    lines.append("")
+    lines.append("OPUS 3-PHASE CHAIN (architect → builder → reviewer) fires ONLY for EXPLICIT BUILD imperatives:")
+    lines.append("  • 'build X', 'create a tool that X', 'implement Y', 'make me Z', 'write the code for', 'code up a', 'develop a plugin that'.")
+    lines.append("  • The subject must be a concrete thing (a tool, plugin, script, feature, app, integration).")
+    lines.append("  • Each Opus pass costs $3-6. Use sparingly. Confirm scope with the user BEFORE firing the chain if there's any ambiguity.")
+    lines.append("")
+    lines.append("DO NOT fire the Opus chain for any of these — answer directly or use a cheap specialist:")
+    lines.append("  • One-word affirmations ('continue', 'ok', 'yes', 'go') unless the immediately-preceding turn was a confirmed build invitation.")
+    lines.append("  • Clarifying questions: 'how will you...', 'what if...', 'can you...', 'why does...', 'is it...'.")
+    lines.append("  • Meta-questions about how you work, your config, your channels, your credentials.")
+    lines.append("  • Channel/account/credential/permission setup (those need the user's action, not code).")
+    lines.append("  • Status, health, diagnostic, log-inspection requests.")
+    lines.append("  • Follow-up questions during/after a build that don't add a NEW build imperative.")
+    lines.append("")
+    lines.append("DO use the appropriate single-specialist role (cheap, fast):")
+    lines.append("  • researcher / realtime / long_context / scientist / calculator / budget / writer — these are scoped to one task and are not expensive. Use freely.")
+    lines.append("")
+    lines.append("When unsure, ASK A CLARIFYING QUESTION rather than delegate. Cost of asking is zero. Cost of wrong Opus delegation is $3-10.")
+    lines.append("")
+    lines.append("Only answer directly (no delegation, no clarifying) when: greeting/farewell, single-fact you're SURE you know, the user explicitly says 'just answer'.")
+    lines.append("")
+    return "\n".join(lines) + "\n"
 
 
 def _build_top_level_description() -> str:
@@ -2460,6 +2601,10 @@ def _build_top_level_description() -> str:
     raised delegation.max_concurrent_children / max_spawn_depth. Called both
     at module import (to seed DELEGATE_TASK_SCHEMA) and on every
     get_definitions() call via dynamic_schema_overrides.
+
+    Includes the role-routing table emitted by _build_role_routing_table()
+    so GPT-5.5 / Claude / etc. see the intent→specialist mapping at the
+    exact moment they're deciding whether to use this tool.
     """
     try:
         max_children = _get_max_concurrent_children()
@@ -2496,11 +2641,14 @@ def _build_top_level_description() -> str:
             f"config.yaml to enable nesting."
         )
 
+    routing_table = _build_role_routing_table()
+
     return (
         "Spawn one or more subagents to work on tasks in isolated contexts. "
         "Each subagent gets its own conversation, terminal session, and toolset. "
         "Only the final summary is returned -- intermediate tool results "
         "never enter your context window.\n\n"
+        f"{routing_table}"
         "TWO MODES (one of 'goal' or 'tasks' is required):\n"
         "1. Single task: provide 'goal' (+ optional context, toolsets)\n"
         f"2. Batch (parallel): provide 'tasks' array with up to {max_children} "
@@ -2595,9 +2743,19 @@ def _build_role_param_description() -> str:
         )
 
     return (
-        "Role of the child agent. 'leaf' (default) = focused "
-        "worker, cannot delegate further. 'orchestrator' = can "
-        f"use delegate_task to spawn its own workers. {nesting_note}"
+        "Role of the child agent. Serves TWO purposes: "
+        "(1) DEPTH CONTROL — 'leaf' (default) = focused worker, cannot "
+        "delegate further; 'orchestrator' = can use delegate_task to spawn "
+        f"its own workers ({nesting_note}). "
+        "(2) MODEL ROUTING — if role matches a key in delegation_models "
+        "config (e.g. 'researcher', 'architect', 'reviewer', 'long_context', "
+        "'scientist', 'calculator', 'budget', 'realtime', 'writer', "
+        "'builder', 'escalate_opus'), the child runs on that role's "
+        "configured model/provider (e.g. researcher→Perplexity Sonar Pro, "
+        "architect→Opus 4.7, long_context→Gemini 2.5 Pro). Unknown roles "
+        "fall back to the singular delegation block. Specialist roles "
+        "ALSO trigger leaf-mode depth control unless explicitly named "
+        "'orchestrator'."
     )
 
 
@@ -2699,8 +2857,15 @@ DELEGATE_TASK_SCHEMA = {
                         },
                         "role": {
                             "type": "string",
-                            "enum": ["leaf", "orchestrator"],
-                            "description": "Per-task role override. See top-level 'role' for semantics.",
+                            "description": (
+                                "Per-task role. Accepts 'leaf' / 'orchestrator' for depth "
+                                "control AND specialist names ('researcher', 'architect', "
+                                "'reviewer', 'long_context', 'scientist', 'calculator', "
+                                "'budget', 'realtime', 'writer', 'escalate_opus', 'builder') "
+                                "for model-routing via delegation_models. Unknown values "
+                                "fall back to base delegation. See top-level 'role' for full "
+                                "semantics."
+                            ),
                         },
                     },
                     "required": ["goal"],
@@ -2712,7 +2877,6 @@ DELEGATE_TASK_SCHEMA = {
             },
             "role": {
                 "type": "string",
-                "enum": ["leaf", "orchestrator"],
                 "description": "(rebuilt at get_definitions() time)",
             },
             "acp_command": {
