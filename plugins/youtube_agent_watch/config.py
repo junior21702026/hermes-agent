@@ -103,6 +103,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "hype_fallback_channel": "ai-research",
         "on_missing_channel": "post_to_fallback_and_warn",
         "auto_create_channels": False,
+        "max_topic_channels_per_post": 3,
+        "term_normalization": {},
+        "suppress_empty_cards": True,
     },
     "safety": {"require_explicit_live_flag": True, "live_promotion_checklist_passed": False},
     "obsidian": {
@@ -115,6 +118,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "scoring": {
         "thresholds": {"obsidian_and_discord": 8, "discord_short": 6, "seen_only_max": 5},
         "weights": {"workflow_explicit": 0.30, "automation_actionable": 0.25, "hermes_or_claude_code_pattern": 0.20, "tool_stack_clarity": 0.10, "novelty_vs_known": 0.10, "hype_penalty": -0.20},
+        "caps": {
+            "unverified_stub_with_claims": 8.5,
+            "unverified_stub_no_claims": 9.0,
+            "not_run_with_unverified_claims": 9.0,
+            "non_perfect_unless_multi_signal": 9.7,
+        },
+        "substantial": {
+            "workflow_min_steps": 3,
+            "workflow_alt_steps_with_stack": 2,
+            "workflow_alt_min_stack": 2,
+            "automation_requires_value": True,
+            "hermes_idea_min_rationale_chars": 40,
+            "tool_stack_min_named": 2,
+            "pattern_min_snippet_chars": 30,
+        },
     },
     "verification": {"dry_run": False, "dry_run_writes_to": "/tmp/yt-watch-dryrun", "require_human_approval_above_score": None, "researcher_verification_threshold": 8},
 }

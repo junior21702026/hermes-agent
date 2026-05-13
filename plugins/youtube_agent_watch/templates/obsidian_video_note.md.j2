@@ -7,44 +7,44 @@ topics: {{ e.topics }}
 extracted_at: {{ e.extracted_at }}
 ---
 
-# {{ e.title }}
+# {{ e.title | hermes_terms }}
 
 ## TL;DR
-{% for item in e.tldr %}- {{ item }}
-{% else %}- No concrete TL;DR extracted.
+{% for item in e.tldr %}- {{ item | hermes_terms }}
+{% else %}_(none extracted)_
 {% endfor %}
 
 ## Workflows
-{% for w in e.workflows %}{{ loop.index }}. **{{ w.title }}** (copy difficulty: {{ w.copy_difficulty }})
-   - Stack: {{ w.stack | join(', ') }}
-{% for step in w.steps %}   - {{ step }}
+{% for w in e.workflows %}{{ loop.index }}. **{{ w.title | hermes_terms }}** (copy difficulty: {{ w.copy_difficulty }})
+   - Stack: {{ (w.stack | join(', ')) | hermes_terms }}
+{% for step in w.steps %}   - {{ step | hermes_terms }}
 {% endfor %}
-{% else %}- None extracted.
+{% else %}_(none extracted)_
 {% endfor %}
 
 ## Automations
-{% for a in e.automations_for_small_business %}- **{{ a.use_case }}** — trigger: {{ a.trigger }}; tools: {{ a.tools | join(', ') }}; value: {{ a.estimated_value }}
-{% else %}- None extracted.
+{% for a in e.automations_for_small_business %}- **{{ a.use_case | hermes_terms }}** — trigger: {{ a.trigger | hermes_terms }}; tools: {{ (a.tools | join(', ')) | hermes_terms }}; value: {{ a.estimated_value | hermes_terms }}
+{% else %}_(none extracted)_
 {% endfor %}
 
 ## Tools / Stacks
-{% for t in e.tools_models_stacks %}- {{ t.name }} — {{ t.role }}
-{% else %}- None extracted.
+{% for t in e.tools_models_stacks %}- {{ t.name | hermes_terms }} — {{ t.role | hermes_terms }}
+{% else %}_(none extracted)_
 {% endfor %}
 
 ## Prompts / Patterns
-{% for p in e.prompts_and_patterns %}- **{{ p.name }}** — {{ p.snippet }}
-{% else %}- None extracted.
+{% for p in e.prompts_and_patterns %}- **{{ p.name | hermes_terms }}** — {{ p.snippet | hermes_terms }}
+{% else %}_(none extracted)_
 {% endfor %}
 
 ## Hermes / OpenClaw / Codex Ideas
-{% for idea in e.hermes_openclaw_codex_ideas %}- **{{ idea.kind }}: {{ idea.name }}** — {{ idea.rationale }}
-{% else %}- None extracted.
+{% for idea in e.hermes_openclaw_codex_ideas %}- **{% if idea.kind == 'parallel' %}Parallel pattern{% else %}{{ (idea.kind or 'idea') | replace('_', ' ') | title }}{% endif %}: {{ idea.name | hermes_terms }}**{% if idea.rationale %} — {{ idea.rationale | hermes_terms }}{% endif %}
+{% else %}_(none extracted)_
 {% endfor %}
 
 ## Verification
 - Confidence: {{ e.verification.confidence }}
-- Notes: {{ e.verification.notes }}
+- Notes: {{ e.verification.notes | hermes_terms }}
 
 ## Raw Link
 {{ e.url }}

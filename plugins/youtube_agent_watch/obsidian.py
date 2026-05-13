@@ -6,6 +6,8 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from .text_quality import normalize_hermes_terms
+
 TEMPLATE_DIR = Path(__file__).with_name("templates")
 
 
@@ -32,6 +34,7 @@ class ObsidianWriter:
         self.base = base
         self.config = config
         self.env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=select_autoescape(default=False))
+        self.env.filters["hermes_terms"] = normalize_hermes_terms
 
     def ensure_stubs(self) -> None:
         self.base.mkdir(parents=True, exist_ok=True)
